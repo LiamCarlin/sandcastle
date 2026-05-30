@@ -1,22 +1,38 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { createCli } from "../src/cli.js";
 
-async function runCli(args: string[]): Promise<string[]> {
-  const output: string[] = [];
-  const cli = createCli((line) => output.push(line));
-
-  await cli.parseAsync(["node", "sandcastle", ...args]);
-
-  return output;
+async function createTargetRepo(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "sandcastle-cli-"));
+  await writeFile(join(dir, "package.json"), JSON.stringify({ name: "target-repo" }));
+  return dir;
 }
 
 describe("cli", () => {
-  it("prints a greeting for the provided name argument", async () => {
-    await expect(runCli(["Ada"])).resolves.toEqual(["Hello, Ada!"]);
-  });
+  it("initializes Sandcastle with an injected GitHub token without printing the token", async () => {
+    const cwd = await createTargetRepo();
+    const output: string[] = [];
 
-  it("prints a default greeting when no name is provided", async () => {
-    await expect(runCli([])).resolves.toEqual(["Hello, world!"]);
+    try {
+      const cli = createCli({
+        cwd,
+        input: async () => "ghp_cli_secret",
+        writeLine: (line) => output.push(line),
+        install: false,
+      });
+
+      await cli.parseAsync(["node", "sandcastle-init"]);
+
+      const env = await readFile(join(cwd, ".sandcastle", ".env"), "utf8");
+      expect(env).toContain("GH_TOKEN=ghp_cli_secret");
+      expect(output).toContain("Sandcastle initialized.");
+      expect(output.join("\n")).not.toContain("ghp_cli_secret");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 });

@@ -281,6 +281,8 @@ describe("initSandcastle", () => {
       ghToken: "ghp_docker",
       install: false,
       homeDir,
+      hostUid: 501,
+      hostGid: 20,
       runCommand: async (command, args) => {
         commands.push({ command, args });
         if (command === "docker" && args[0] === "image") {
@@ -293,7 +295,18 @@ describe("initSandcastle", () => {
     expect(commands).toContainEqual({ command: "docker", args: ["version"] });
     expect(commands).toContainEqual({
       command: "docker",
-      args: ["build", "-t", "sandcastle-target:latest", "-f", ".sandcastle/Dockerfile", "."],
+      args: [
+        "build",
+        "-t",
+        "sandcastle-target:latest",
+        "--build-arg",
+        "AGENT_UID=501",
+        "--build-arg",
+        "AGENT_GID=20",
+        "-f",
+        ".sandcastle/Dockerfile",
+        ".",
+      ],
     });
   });
 
@@ -316,12 +329,25 @@ describe("initSandcastle", () => {
       },
       dockerBuild: true,
       codexPreflight: false,
+      hostUid: 501,
+      hostGid: 20,
     });
 
     expect(questions[0]).toContain("sandcastle-target:latest");
     expect(commands).not.toContainEqual({
       command: "docker",
-      args: ["build", "-t", "sandcastle-target:latest", "-f", ".sandcastle/Dockerfile", "."],
+      args: [
+        "build",
+        "-t",
+        "sandcastle-target:latest",
+        "--build-arg",
+        "AGENT_UID=501",
+        "--build-arg",
+        "AGENT_GID=20",
+        "-f",
+        ".sandcastle/Dockerfile",
+        ".",
+      ],
     });
   });
 
@@ -335,6 +361,8 @@ describe("initSandcastle", () => {
       install: false,
       dockerBuild: true,
       codexPreflight: false,
+      hostUid: 501,
+      hostGid: 20,
       yes: true,
       confirm: async () => {
         throw new Error("confirm should not be called");
@@ -346,7 +374,18 @@ describe("initSandcastle", () => {
 
     expect(commands).toContainEqual({
       command: "docker",
-      args: ["build", "-t", "sandcastle-target:latest", "-f", ".sandcastle/Dockerfile", "."],
+      args: [
+        "build",
+        "-t",
+        "sandcastle-target:latest",
+        "--build-arg",
+        "AGENT_UID=501",
+        "--build-arg",
+        "AGENT_GID=20",
+        "-f",
+        ".sandcastle/Dockerfile",
+        ".",
+      ],
     });
   });
 

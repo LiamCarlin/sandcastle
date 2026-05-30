@@ -230,7 +230,18 @@ async function setupDockerImage(targetDir, imageTag, options, run, writeLine) {
         return;
     }
     writeLine(`Building Docker image ${imageTag}`);
-    await run("docker", ["build", "-t", imageTag, "-f", ".sandcastle/Dockerfile", "."], {
+    await run("docker", [
+        "build",
+        "-t",
+        imageTag,
+        "--build-arg",
+        `AGENT_UID=${options.hostUid ?? process.getuid?.() ?? 1000}`,
+        "--build-arg",
+        `AGENT_GID=${options.hostGid ?? process.getgid?.() ?? 1000}`,
+        "-f",
+        ".sandcastle/Dockerfile",
+        ".",
+    ], {
         cwd: targetDir,
     });
 }

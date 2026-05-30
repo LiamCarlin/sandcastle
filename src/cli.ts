@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { createInterface } from "node:readline/promises";
 import { stdin as inputStream, stdout as outputStream } from "node:process";
+import type { Readable, Writable } from "node:stream";
 
 import { Command } from "commander";
 
@@ -8,6 +8,11 @@ import { initSandcastle } from "./init.js";
 
 type Input = (question: string) => Promise<string>;
 type WriteLine = (line: string) => void;
+type SecretInputStream = Readable & {
+  isRaw?: boolean;
+  isTTY?: boolean;
+  setRawMode?: (mode: boolean) => void;
+};
 
 export interface CliOptions {
   cwd?: string;
@@ -16,22 +21,104 @@ export interface CliOptions {
   install?: boolean;
 }
 
-async function promptInput(question: string): Promise<string> {
-  const readline = createInterface({
-    input: inputStream,
-    output: outputStream,
-  });
+interface SecretInputOptions {
+  input?: SecretInputStream;
+  output?: Writable;
+}
 
-  try {
-    return await readline.question(question);
-  } finally {
-    readline.close();
-  }
+export async function promptSecretInput(
+  question: string,
+  options: SecretInputOptions = {},
+): Promise<string> {
+  const input = options.input ?? inputStream;
+  const output = options.output ?? outputStream;
+
+  output.write(question);
+
+  return await new Promise<string>((resolve, reject) => {
+    let token = "";
+    let settled = false;
+    const wasRaw = input.isRaw === true;
+    const canSetRawMode = input.isTTY === true && typeof input.setRawMode === "function";
+
+    const cleanup = () => {
+      input.off("data", onData);
+      input.off("error", onError);
+      if (canSetRawMode) {
+        input.setRawMode?.(wasRaw);
+      }
+      input.pause();
+    };
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      output.write("\n");
+      cleanup();
+      resolve(token);
+    };
+
+    const cancel = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      output.write("\n");
+      cleanup();
+      reject(new Error("Input cancelled"));
+    };
+
+    const onError = (error: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const onData = (chunk: Buffer | string) => {
+      const characters = String(chunk);
+
+      for (const character of characters) {
+        if (character === "\u0003") {
+          cancel();
+          return;
+        }
+
+        if (character === "\n" || character === "\r") {
+          finish();
+          return;
+        }
+
+        if (character === "\b" || character === "\u007f") {
+          token = token.slice(0, -1);
+          continue;
+        }
+
+        token += character;
+      }
+    };
+
+    input.on("data", onData);
+    input.on("error", onError);
+
+    if (canSetRawMode) {
+      input.setRawMode?.(true);
+    }
+
+    input.resume();
+  });
 }
 
 export function createCli(options: CliOptions = {}): Command {
   const writeLine = options.writeLine ?? console.log;
-  const readInput = options.input ?? promptInput;
+  const readInput = options.input ?? promptSecretInput;
   const targetDir = options.cwd ?? process.cwd();
 
   const program = new Command();

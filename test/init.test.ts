@@ -1,11 +1,12 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { initSandcastle } from "../src/init.js";
+import { initSandcastle, normalizeDockerName } from "../src/init.js";
 
 const targetDirs: string[] = [];
+const noopRunCommand = async () => undefined;
 
 async function makeTarget(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "sandcastle-init-"));
@@ -23,15 +24,27 @@ describe("initSandcastle", () => {
     const targetDir = await mkdtemp(join(tmpdir(), "sandcastle-init-empty-"));
     targetDirs.push(targetDir);
 
-    await expect(initSandcastle({ targetDir, ghToken: "ghp_test", install: false })).rejects.toThrow(
-      "package.json is required",
-    );
+    await expect(
+      initSandcastle({
+        targetDir,
+        ghToken: "ghp_test",
+        install: false,
+        dockerBuild: false,
+      }),
+    ).rejects.toThrow("package.json is required");
   });
 
   it("copies managed template files and excludes runtime files", async () => {
     const targetDir = await makeTarget();
 
-    await initSandcastle({ targetDir, ghToken: "ghp_test", install: false });
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
 
     await expect(readFile(join(targetDir, ".sandcastle/main.mts"), "utf8")).resolves.toContain(
       "Parallel Planner with Review",
@@ -42,7 +55,14 @@ describe("initSandcastle", () => {
   it("creates .env from the example and writes the provided GH_TOKEN", async () => {
     const targetDir = await makeTarget();
 
-    await initSandcastle({ targetDir, ghToken: "ghp_secret_value", install: false });
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_secret_value",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
 
     const env = await readFile(join(targetDir, ".sandcastle/.env"), "utf8");
     expect(env).toContain("CODEX_MODEL=gpt-5.5");
@@ -51,9 +71,23 @@ describe("initSandcastle", () => {
 
   it("preserves an existing .env when token input is empty", async () => {
     const targetDir = await makeTarget();
-    await initSandcastle({ targetDir, ghToken: "ghp_original", install: false });
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_original",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
 
-    await initSandcastle({ targetDir, ghToken: "", install: false });
+    await initSandcastle({
+      targetDir,
+      ghToken: "",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
 
     const env = await readFile(join(targetDir, ".sandcastle/.env"), "utf8");
     expect(env).toContain("GH_TOKEN=ghp_original");
@@ -61,9 +95,23 @@ describe("initSandcastle", () => {
 
   it("updates an existing GH_TOKEN when a new token is entered", async () => {
     const targetDir = await makeTarget();
-    await initSandcastle({ targetDir, ghToken: "ghp_original", install: false });
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_original",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
 
-    await initSandcastle({ targetDir, ghToken: "ghp_replacement", install: false });
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_replacement",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
 
     const env = await readFile(join(targetDir, ".sandcastle/.env"), "utf8");
     expect(env).toContain("GH_TOKEN=ghp_replacement");
@@ -73,8 +121,22 @@ describe("initSandcastle", () => {
   it("adds scripts and devDependencies idempotently", async () => {
     const targetDir = await makeTarget();
 
-    await initSandcastle({ targetDir, ghToken: "ghp_test", install: false });
-    await initSandcastle({ targetDir, ghToken: "ghp_test", install: false });
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
 
     const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf8"));
     expect(packageJson.scripts.sandcastle).toBe("npx tsx --env-file=.sandcastle/.env .sandcastle/main.mts");
@@ -99,11 +161,226 @@ describe("initSandcastle", () => {
       targetDir,
       ghToken: "ghp_test",
       install: true,
+      dockerBuild: false,
+      codexPreflight: false,
       runCommand: async (command, args, options) => {
         commands.push({ command, args, cwd: options.cwd });
       },
     });
 
-    expect(commands).toEqual([{ command, args: ["install"], cwd: targetDir }]);
+    expect(commands.slice(0, 2)).toEqual([
+      { command, args: ["install"], cwd: targetDir },
+      { command, args: ["run", "test:sandcastle"], cwd: targetDir },
+    ]);
+  });
+
+  it("normalizes repository names for Docker image tags", () => {
+    expect(normalizeDockerName("@Scope/My Repo_Name")).toBe("scope-my-repo-name");
+    expect(normalizeDockerName("...")).toBe("repo");
+  });
+
+  it("uses an existing .env GH_TOKEN without requiring a new token", async () => {
+    const targetDir = await makeTarget();
+    const commands: Array<{ command: string; args: string[]; env?: string }> = [];
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_existing",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+    await initSandcastle({
+      targetDir,
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: async (command, args, options) => {
+        commands.push({ command, args, env: options.env?.GH_TOKEN });
+      },
+    });
+
+    expect(commands).toContainEqual({
+      command: "gh",
+      args: [
+        "label",
+        "create",
+        "Sandcastle",
+        "--color",
+        "0969da",
+        "--description",
+        "Issues ready for Sandcastle automation",
+      ],
+      env: "ghp_existing",
+    });
+  });
+
+  it("creates the Sandcastle GitHub label with GH_TOKEN in the child environment", async () => {
+    const targetDir = await makeTarget();
+    const commands: Array<{ command: string; args: string[]; env?: string }> = [];
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_label",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: async (command, args, options) => {
+        commands.push({ command, args, env: options.env?.GH_TOKEN });
+      },
+    });
+
+    expect(commands).toContainEqual({
+      command: "gh",
+      args: [
+        "label",
+        "create",
+        "Sandcastle",
+        "--color",
+        "0969da",
+        "--description",
+        "Issues ready for Sandcastle automation",
+      ],
+      env: "ghp_label",
+    });
+    expect(commands.flatMap((entry) => entry.args)).not.toContain("ghp_label");
+  });
+
+  it("treats an existing Sandcastle label as success", async () => {
+    const targetDir = await makeTarget();
+
+    await expect(
+      initSandcastle({
+        targetDir,
+        ghToken: "ghp_label",
+        install: false,
+        dockerBuild: false,
+        codexPreflight: false,
+        runCommand: async (command, args) => {
+          if (command === "gh" && args.includes("create")) {
+            throw new Error("label already exists");
+          }
+        },
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("builds a new repo-specific Docker image when no image exists", async () => {
+    const targetDir = await makeTarget();
+    const homeDir = await mkdtemp(join(tmpdir(), "sandcastle-home-"));
+    targetDirs.push(homeDir);
+    await mkdir(join(homeDir, ".codex"), { recursive: true });
+    await writeFile(join(homeDir, ".codex/auth.json"), "{}");
+    await writeFile(join(homeDir, ".codex/config.toml"), "");
+    const commands: Array<{ command: string; args: string[] }> = [];
+
+    const result = await initSandcastle({
+      targetDir,
+      ghToken: "ghp_docker",
+      install: false,
+      homeDir,
+      runCommand: async (command, args) => {
+        commands.push({ command, args });
+        if (command === "docker" && args[0] === "image") {
+          throw new Error("No such image");
+        }
+      },
+    });
+
+    expect(result.imageTag).toBe("sandcastle-target:latest");
+    expect(commands).toContainEqual({ command: "docker", args: ["version"] });
+    expect(commands).toContainEqual({
+      command: "docker",
+      args: ["build", "-t", "sandcastle-target:latest", "-f", ".sandcastle/Dockerfile", "."],
+    });
+  });
+
+  it("asks before rebuilding an existing Docker image", async () => {
+    const targetDir = await makeTarget();
+    const commands: Array<{ command: string; args: string[] }> = [];
+    const questions: string[] = [];
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_docker",
+      install: false,
+      homeDir: tmpdir(),
+      confirm: async (question) => {
+        questions.push(question);
+        return false;
+      },
+      runCommand: async (command, args) => {
+        commands.push({ command, args });
+      },
+      dockerBuild: true,
+      codexPreflight: false,
+    });
+
+    expect(questions[0]).toContain("sandcastle-target:latest");
+    expect(commands).not.toContainEqual({
+      command: "docker",
+      args: ["build", "-t", "sandcastle-target:latest", "-f", ".sandcastle/Dockerfile", "."],
+    });
+  });
+
+  it("rebuilds an existing Docker image without asking when yes is true", async () => {
+    const targetDir = await makeTarget();
+    const commands: Array<{ command: string; args: string[] }> = [];
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_docker",
+      install: false,
+      dockerBuild: true,
+      codexPreflight: false,
+      yes: true,
+      confirm: async () => {
+        throw new Error("confirm should not be called");
+      },
+      runCommand: async (command, args) => {
+        commands.push({ command, args });
+      },
+    });
+
+    expect(commands).toContainEqual({
+      command: "docker",
+      args: ["build", "-t", "sandcastle-target:latest", "-f", ".sandcastle/Dockerfile", "."],
+    });
+  });
+
+  it("skips Docker commands when dockerBuild is false", async () => {
+    const targetDir = await makeTarget();
+    const commands: Array<{ command: string; args: string[] }> = [];
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_skip",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: async (command, args) => {
+        commands.push({ command, args });
+      },
+    });
+
+    expect(commands.some((entry) => entry.command === "docker")).toBe(false);
+  });
+
+  it("fails Codex preflight when login files are missing", async () => {
+    const targetDir = await makeTarget();
+    const homeDir = await mkdtemp(join(tmpdir(), "sandcastle-home-"));
+    targetDirs.push(homeDir);
+
+    await expect(
+      initSandcastle({
+        targetDir,
+        ghToken: "ghp_codex",
+        install: false,
+        dockerBuild: false,
+        homeDir,
+        runCommand: noopRunCommand,
+      }),
+    ).rejects.toThrow("Codex CLI login files were not found");
   });
 });

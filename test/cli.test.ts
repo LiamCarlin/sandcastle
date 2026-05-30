@@ -7,7 +7,7 @@ describe("cli", () => {
     const output: string[] = [];
     const cli = createCli((line) => output.push(line));
 
-    await cli.parseAsync(["node", "sandcastle", "hello", "Ada"]);
+    await cli.parseAsync(["node", "workspace", "hello", "Ada"]);
 
     expect(output).toEqual(["Hello, Ada!"]);
   });

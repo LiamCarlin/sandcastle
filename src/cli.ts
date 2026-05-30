@@ -3,7 +3,9 @@ import { Command } from "commander";
 
 import { createGreeting } from "./app.js";
 
-export function createCli(writeLine = console.log): Command {
+type WriteLine = (line: string) => void;
+
+export function createCli(writeLine: WriteLine = console.log): Command {
   const program = new Command();
 
   program

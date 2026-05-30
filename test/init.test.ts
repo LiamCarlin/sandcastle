@@ -67,6 +67,7 @@ describe("initSandcastle", () => {
     const env = await readFile(join(targetDir, ".sandcastle/.env"), "utf8");
     expect(env).toContain("CODEX_MODEL=gpt-5.5");
     expect(env).toContain("GH_TOKEN=ghp_secret_value");
+    expect(env).toContain("SANDCASTLE_DOCKER_IMAGE=sandcastle-target:latest");
   });
 
   it("preserves an existing .env when token input is empty", async () => {

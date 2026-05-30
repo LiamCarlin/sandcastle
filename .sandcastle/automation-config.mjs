@@ -62,6 +62,7 @@ export const getAutomationConfig = (env = process.env) => {
       "MAX_PARALLEL_ISSUES",
       DEFAULT_MAX_PARALLEL_ISSUES,
     ),
+    sandboxImageTag: env.SANDCASTLE_DOCKER_IMAGE?.trim() || undefined,
     ghToken: readRequired(env, "GH_TOKEN"),
   };
 };

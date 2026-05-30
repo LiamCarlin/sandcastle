@@ -75,6 +75,7 @@ export async function initSandcastle(options: InitSandcastleOptions): Promise<In
   await copyManagedTemplates(targetDir);
   const token = await resolveGhToken(targetDir, options.ghToken, env);
   await ensureEnv(targetDir, token.value);
+  await writeEnvValue(targetDir, "SANDCASTLE_DOCKER_IMAGE", imageTag);
   await updatePackageJson(targetDir, packageJson);
 
   if (options.install !== false) {
@@ -163,6 +164,12 @@ async function ensureEnv(targetDir: string, ghToken: string): Promise<void> {
 
   const env = await readFile(envPath, "utf8");
   await writeFile(envPath, upsertEnvValue(env, "GH_TOKEN", trimmedToken));
+}
+
+async function writeEnvValue(targetDir: string, key: string, value: string): Promise<void> {
+  const envPath = join(targetDir, ".sandcastle", ".env");
+  const env = await readFile(envPath, "utf8");
+  await writeFile(envPath, upsertEnvValue(env, key, value));
 }
 
 async function resolveGhToken(

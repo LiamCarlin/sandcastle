@@ -19,8 +19,21 @@ test("builds CLI-first automation config from environment", () => {
     codexModel: "gpt-5.5",
     codexEffort: "medium",
     maxParallelIssues: 2,
+    sandboxImageTag: undefined,
     ghToken: "gh-token",
   });
+});
+
+test("reads the configured sandbox Docker image tag", () => {
+  const config = getAutomationConfig({
+    CODEX_MODEL: "gpt-5.5",
+    CODEX_EFFORT: "medium",
+    MAX_PARALLEL_ISSUES: "2",
+    SANDCASTLE_DOCKER_IMAGE: "sandcastle-example:latest",
+    GH_TOKEN: "gh-token",
+  });
+
+  assert.equal(config.sandboxImageTag, "sandcastle-example:latest");
 });
 
 test("rejects model-provider API key configuration", () => {

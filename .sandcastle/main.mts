@@ -65,6 +65,7 @@ const copyToWorktree = ["node_modules"];
 // Let Codex CLI inside Docker read this machine's login while keeping each
 // sandbox's writable Codex state isolated.
 const sandboxProvider = docker({
+  imageName: config.sandboxImageTag,
   mounts: codexCredentialMounts,
 });
 

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, Writable } from "node:stream";
@@ -52,6 +52,9 @@ describe("cli", () => {
         input: async () => "ghp_cli_secret",
         writeLine: (line) => output.push(line),
         install: false,
+        dockerBuild: false,
+        codexPreflight: false,
+        runCommand: async () => undefined,
       });
 
       await cli.parseAsync(["node", "sandcastle-init"]);
@@ -59,7 +62,61 @@ describe("cli", () => {
       const env = await readFile(join(cwd, ".sandcastle", ".env"), "utf8");
       expect(env).toContain("GH_TOKEN=ghp_cli_secret");
       expect(output).toContain("Sandcastle initialized.");
+      expect(output).toContain("Docker image: sandcastle-target-repo:latest");
       expect(output.join("\n")).not.toContain("ghp_cli_secret");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("does not prompt for a GitHub token when .sandcastle/.env already has one", async () => {
+    const cwd = await createTargetRepo();
+    const output: string[] = [];
+
+    try {
+      await mkdir(join(cwd, ".sandcastle"), { recursive: true });
+      await writeFile(join(cwd, ".sandcastle", ".env"), "GH_TOKEN=ghp_existing\n");
+
+      const cli = createCli({
+        cwd,
+        input: async () => {
+          throw new Error("token prompt should not run");
+        },
+        writeLine: (line) => output.push(line),
+        install: false,
+        dockerBuild: false,
+        codexPreflight: false,
+        runCommand: async () => undefined,
+      });
+
+      await cli.parseAsync(["node", "sandcastle-init"]);
+
+      expect(output).toContain("Sandcastle initialized.");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("passes --yes and --no-docker-build into the initializer behavior", async () => {
+    const cwd = await createTargetRepo();
+    const commands: Array<{ command: string; args: string[] }> = [];
+
+    try {
+      const cli = createCli({
+        cwd,
+        input: async () => "ghp_cli_secret",
+        writeLine: () => undefined,
+        install: false,
+        codexPreflight: false,
+        runCommand: async (command, args) => {
+          commands.push({ command, args });
+        },
+      });
+
+      await cli.parseAsync(["node", "sandcastle-init", "--yes", "--no-docker-build"]);
+
+      expect(commands.some((entry) => entry.command === "docker")).toBe(false);
+      expect(commands.some((entry) => entry.command === "gh")).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

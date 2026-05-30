@@ -11,7 +11,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "ci": "npm run typecheck && npm run test",
     "cli": "tsx src/cli.ts",
     "prepack": "npm run build",

@@ -25,7 +25,7 @@ const requiredScripts = {
     sandcastle: "npx tsx --env-file=.sandcastle/.env .sandcastle/main.mts",
     "test:sandcastle": "node --test .sandcastle/*.test.mjs",
 };
-const sandcastleGitignoreFallback = ".env\nlogs/\n";
+const sandcastleGitignoreFallback = ".env\nlogs/\nworktrees/\n";
 export async function initSandcastle(options) {
     const targetDir = options.targetDir;
     const packageJson = await readPackageJson(targetDir);

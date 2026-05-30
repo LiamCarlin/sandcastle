@@ -44,7 +44,7 @@ const requiredScripts: Record<string, string> = {
   "test:sandcastle": "node --test .sandcastle/*.test.mjs",
 };
 
-const sandcastleGitignoreFallback = ".env\nlogs/\n";
+const sandcastleGitignoreFallback = ".env\nlogs/\nworktrees/\n";
 
 export async function initSandcastle(options: InitSandcastleOptions): Promise<void> {
   const targetDir = options.targetDir;

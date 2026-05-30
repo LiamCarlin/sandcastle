@@ -1,19 +1,27 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { initSandcastle } from "../src/init.js";
 
+const targetDirs: string[] = [];
+
 async function makeTarget(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "sandcastle-init-"));
+  targetDirs.push(dir);
   await writeFile(join(dir, "package.json"), JSON.stringify({ name: "target", version: "1.0.0" }, null, 2));
   return dir;
 }
 
 describe("initSandcastle", () => {
+  afterEach(async () => {
+    await Promise.all(targetDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
   it("refuses to run without package.json", async () => {
     const targetDir = await mkdtemp(join(tmpdir(), "sandcastle-init-empty-"));
+    targetDirs.push(targetDir);
 
     await expect(initSandcastle({ targetDir, ghToken: "ghp_test", install: false })).rejects.toThrow(
       "package.json is required",
@@ -76,9 +84,16 @@ describe("initSandcastle", () => {
     expect(packageJson.devDependencies.zod).toBeDefined();
   });
 
-  it("runs the detected package manager install command", async () => {
+  it.each([
+    { lockfile: undefined, command: "npm" },
+    { lockfile: "pnpm-lock.yaml", command: "pnpm" },
+    { lockfile: "yarn.lock", command: "yarn" },
+  ])("runs $command install when $lockfile is present", async ({ lockfile, command }) => {
     const targetDir = await makeTarget();
     const commands: Array<{ command: string; args: string[]; cwd: string }> = [];
+    if (lockfile) {
+      await writeFile(join(targetDir, lockfile), "");
+    }
 
     await initSandcastle({
       targetDir,
@@ -89,6 +104,6 @@ describe("initSandcastle", () => {
       },
     });
 
-    expect(commands).toEqual([{ command: "npm", args: ["install"], cwd: targetDir }]);
+    expect(commands).toEqual([{ command, args: ["install"], cwd: targetDir }]);
   });
 });

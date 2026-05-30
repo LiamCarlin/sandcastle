@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import { realpathSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { stdin as inputStream, stdout as outputStream } from "node:process";
+import { createInterface } from "node:readline/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { initSandcastle } from "./init.js";
@@ -82,41 +85,78 @@ export async function promptSecretInput(question, options = {}) {
         input.resume();
     });
 }
+export async function promptConfirm(question) {
+    const readline = createInterface({ input: inputStream, output: outputStream });
+    try {
+        const answer = (await readline.question(question)).trim().toLowerCase();
+        return answer === "" || answer === "y" || answer === "yes";
+    }
+    finally {
+        readline.close();
+    }
+}
+async function hasExistingGhToken(targetDir, env) {
+    if (env.GH_TOKEN?.trim()) {
+        return true;
+    }
+    try {
+        const contents = await readFile(join(targetDir, ".sandcastle", ".env"), "utf8");
+        return contents
+            .split(/\r?\n/)
+            .some((line) => line.startsWith("GH_TOKEN=") && line.slice("GH_TOKEN=".length).trim());
+    }
+    catch {
+        return false;
+    }
+}
 export function createCli(options = {}) {
     const writeLine = options.writeLine ?? console.log;
     const readInput = options.input ?? promptSecretInput;
+    const confirm = options.confirm ?? promptConfirm;
     const targetDir = options.cwd ?? process.cwd();
+    const env = options.env ?? process.env;
     const program = new Command();
     program
         .name("sandcastle-init")
         .description("prepares repo for Sandcastle automation")
         .option("--no-install", "skip package manager install")
+        .option("--no-docker-build", "skip Docker image checks and build")
+        .option("--yes", "accept setup defaults and rebuild an existing Docker image")
         .action(async (commandOptions) => {
-        let ghToken;
-        try {
-            ghToken = await readInput("Paste GH_TOKEN for GitHub Issues access: ");
-        }
-        catch (error) {
-            if (isPromptCancelledError(error)) {
-                program.error("Input cancelled.", {
-                    code: "prompt.cancelled",
-                    exitCode: 130,
-                });
+        let ghToken = "";
+        if (!(await hasExistingGhToken(targetDir, env))) {
+            try {
+                ghToken = await readInput("Paste GH_TOKEN for GitHub Issues access: ");
             }
-            throw error;
+            catch (error) {
+                if (isPromptCancelledError(error)) {
+                    program.error("Input cancelled.", {
+                        code: "prompt.cancelled",
+                        exitCode: 130,
+                    });
+                }
+                throw error;
+            }
         }
         const install = options.install ?? commandOptions.install;
-        await initSandcastle({
+        const dockerBuild = options.dockerBuild ?? commandOptions.dockerBuild;
+        const yes = options.yes ?? commandOptions.yes === true;
+        const result = await initSandcastle({
             targetDir,
             ghToken,
             install,
+            dockerBuild,
+            yes,
+            confirm,
+            env,
+            runCommand: options.runCommand,
+            codexPreflight: options.codexPreflight,
             writeLine,
         });
         writeLine("Sandcastle initialized.");
+        writeLine(`Docker image: ${result.imageTag}`);
         writeLine("Next steps:");
-        writeLine("1. Confirm Codex CLI is installed and logged in: codex --version");
-        writeLine("2. Run npm run test:sandcastle");
-        writeLine("3. Run npm run sandcastle");
+        writeLine("1. Run npm run sandcastle");
     });
     return program;
 }

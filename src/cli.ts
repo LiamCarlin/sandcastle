@@ -9,13 +9,9 @@ export function createCli(writeLine: WriteLine = console.log): Command {
   const program = new Command();
 
   program
-    .name("workspace")
+    .name("sandcastle")
     .description("A basic TypeScript CLI template")
-    .version("0.1.0");
-
-  program
-    .command("hello")
-    .description("Print a greeting")
+    .version("0.1.0")
     .argument("[name]", "name to greet", "world")
     .action((name: string) => {
       writeLine(createGreeting(name));

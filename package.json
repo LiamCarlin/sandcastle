@@ -6,6 +6,7 @@
     "ci": "npm run typecheck && npm run test",
     "cli": "tsx src/cli.ts",
     "test": "vitest run --typecheck",
+    "test:sandcastle": "node --test .sandcastle/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "sandcastle": "npx tsx --env-file=.sandcastle/.env .sandcastle/main.mts"
   },

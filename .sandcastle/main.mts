@@ -23,7 +23,13 @@
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+import { execFileSync } from "node:child_process";
 import { z } from "zod";
+import {
+  codexCredentialMounts,
+  getAutomationConfig,
+  limitIssuesForRun,
+} from "./automation-config.mjs";
 
 // The planner emits its plan as JSON inside <plan> tags; Output.object extracts
 // and validates it against this schema. We use Zod here, but any Standard
@@ -38,6 +44,8 @@ const planSchema = z.object({
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
+
+const config = getAutomationConfig();
 
 // Maximum number of plan→execute→merge cycles before stopping.
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
@@ -54,9 +62,44 @@ const hooks = {
 // platform-specific binaries and any packages added since the last copy.
 const copyToWorktree = ["node_modules"];
 
+// Let Codex CLI inside Docker read this machine's login while keeping each
+// sandbox's writable Codex state isolated.
+const sandboxProvider = docker({
+  mounts: codexCredentialMounts,
+});
+
+const codexAgent = () =>
+  sandcastle.codex(config.codexModel, { effort: config.codexEffort });
+
+const runPreflight = async () => {
+  console.log("\n=== Preflight ===\n");
+
+  execFileSync("codex", ["--version"], { stdio: "ignore" });
+
+  const preflight = await sandcastle.run({
+    sandbox: sandboxProvider,
+    name: "preflight",
+    maxIterations: 1,
+    agent: codexAgent(),
+    prompt:
+      "Preflight check. Do not edit files. Reply exactly with <preflight>OK</preflight>.",
+    output: sandcastle.Output.string({ tag: "preflight" }),
+  });
+
+  if (preflight.output !== "OK") {
+    throw new Error(`Codex CLI preflight returned ${preflight.output}`);
+  }
+
+  console.log(
+    `Codex CLI ready: model=${config.codexModel}, effort=${config.codexEffort}, maxParallelIssues=${config.maxParallelIssues}`,
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
+
+await runPreflight();
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
@@ -72,13 +115,13 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   const plan = await sandcastle.run({
     hooks,
-    sandbox: docker(),
+    sandbox: sandboxProvider,
     name: "planner",
     // One iteration is enough: the planner just needs to read and reason,
     // not write code. (Structured output requires maxIterations: 1.)
     maxIterations: 1,
     // Opus for planning: dependency analysis benefits from deeper reasoning.
-    agent: sandcastle.codex("gpt-5.4-mini"),
+    agent: codexAgent(),
     promptFile: "./.sandcastle/plan-prompt.md",
     // Extract and validate the <plan> JSON into a typed object. Throws
     // StructuredOutputError if the tag is missing, the JSON is malformed, or
@@ -86,16 +129,17 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
   });
 
-  const issues = plan.output.issues;
+  const plannedIssues = plan.output.issues;
+  const issues = limitIssuesForRun(plannedIssues, config.maxParallelIssues);
 
-  if (issues.length === 0) {
+  if (plannedIssues.length === 0) {
     // No unblocked work — either everything is done or everything is blocked.
     console.log("No unblocked issues to work on. Exiting.");
     break;
   }
 
   console.log(
-    `Planning complete. ${issues.length} issue(s) to work in parallel:`,
+    `Planning complete. ${plannedIssues.length} unblocked issue(s), running ${issues.length} this iteration:`,
   );
   for (const issue of issues) {
     console.log(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
@@ -115,7 +159,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     issues.map(async (issue) => {
       const sandbox = await sandcastle.createSandbox({
         branch: issue.branch,
-        sandbox: docker(),
+        sandbox: sandboxProvider,
         hooks,
         copyToWorktree,
       });
@@ -125,7 +169,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         const implement = await sandbox.run({
           name: "implementer",
           maxIterations: 100,
-          agent: sandcastle.codex("gpt-5.4-mini"),
+          agent: codexAgent(),
           promptFile: "./.sandcastle/implement-prompt.md",
           promptArgs: {
             TASK_ID: issue.id,
@@ -139,7 +183,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           const review = await sandbox.run({
             name: "reviewer",
             maxIterations: 1,
-            agent: sandcastle.codex("gpt-5.4-mini"),
+            agent: codexAgent(),
             promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
               BRANCH: issue.branch,
@@ -207,10 +251,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
-    sandbox: docker(),
+    sandbox: sandboxProvider,
     name: "merger",
     maxIterations: 1,
-    agent: sandcastle.codex("gpt-5.4-mini"),
+    agent: codexAgent(),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       // A markdown list of branch names, one per line.

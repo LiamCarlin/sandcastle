@@ -1,7 +1,15 @@
 {
-  "name": "sandcastle",
+  "name": "sandcastle-init",
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "sandcastle-init": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    ".sandcastle",
+    "README.md"
+  ],
   "scripts": {
     "ci": "npm run typecheck && npm run test",
     "cli": "tsx src/cli.ts",

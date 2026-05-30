@@ -7,6 +7,34 @@ import { describe, expect, it } from "vitest";
 
 import { createCli, promptSecretInput } from "../src/cli.js";
 
+class FakeTtyInput extends PassThrough {
+  isTTY = true;
+  isRaw: boolean;
+  rawModeCalls: boolean[] = [];
+
+  constructor(isRaw = false) {
+    super();
+    this.isRaw = isRaw;
+  }
+
+  setRawMode(mode: boolean): void {
+    this.rawModeCalls.push(mode);
+    this.isRaw = mode;
+  }
+}
+
+function createRecordingOutput(): { output: Writable; writes: string[] } {
+  const writes: string[] = [];
+  const output = new Writable({
+    write(chunk, _encoding, callback) {
+      writes.push(String(chunk));
+      callback();
+    },
+  });
+
+  return { output, writes };
+}
+
 async function createTargetRepo(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "sandcastle-cli-"));
   await writeFile(join(dir, "package.json"), JSON.stringify({ name: "target-repo" }));
@@ -39,13 +67,7 @@ describe("cli", () => {
 
   it("reads the default GitHub token prompt without echoing input", async () => {
     const input = new PassThrough();
-    const writes: string[] = [];
-    const output = new Writable({
-      write(chunk, _encoding, callback) {
-        writes.push(String(chunk));
-        callback();
-      },
-    });
+    const { output, writes } = createRecordingOutput();
 
     const token = promptSecretInput("Paste GH_TOKEN for GitHub Issues access: ", {
       input,
@@ -56,5 +78,43 @@ describe("cli", () => {
 
     await expect(token).resolves.toBe("ghp_cli_secret");
     expect(writes.join("")).toBe("Paste GH_TOKEN for GitHub Issues access: \n");
+  });
+
+  it("enables raw mode for TTY input and restores the previous raw mode after Enter", async () => {
+    const input = new FakeTtyInput(false);
+    const { output, writes } = createRecordingOutput();
+
+    const token = promptSecretInput("Token: ", { input, output });
+
+    expect(input.rawModeCalls).toEqual([true]);
+    input.write("ghp_cli_secret\n");
+
+    await expect(token).resolves.toBe("ghp_cli_secret");
+    expect(input.rawModeCalls).toEqual([true, false]);
+    expect(input.isRaw).toBe(false);
+    expect(writes.join("")).toBe("Token: \n");
+    expect(writes.join("")).not.toContain("ghp_cli_secret");
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("error")).toBe(0);
+  });
+
+  it("restores raw mode and cleans up listeners when TTY input is cancelled with Ctrl+C", async () => {
+    const input = new FakeTtyInput(true);
+    const { output, writes } = createRecordingOutput();
+
+    const token = promptSecretInput("Token: ", { input, output });
+
+    expect(input.rawModeCalls).toEqual([true]);
+    input.write("\u0003");
+
+    await expect(token).rejects.toMatchObject({
+      name: "PromptCancelledError",
+      message: "Input cancelled",
+    });
+    expect(input.rawModeCalls).toEqual([true, true]);
+    expect(input.isRaw).toBe(true);
+    expect(writes.join("")).toBe("Token: \n");
+    expect(input.listenerCount("data")).toBe(0);
+    expect(input.listenerCount("error")).toBe(0);
   });
 });

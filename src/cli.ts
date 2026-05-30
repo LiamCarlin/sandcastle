@@ -26,6 +26,17 @@ interface SecretInputOptions {
   output?: Writable;
 }
 
+export class PromptCancelledError extends Error {
+  constructor() {
+    super("Input cancelled");
+    this.name = "PromptCancelledError";
+  }
+}
+
+function isPromptCancelledError(error: unknown): error is PromptCancelledError {
+  return error instanceof PromptCancelledError;
+}
+
 export async function promptSecretInput(
   question: string,
   options: SecretInputOptions = {},
@@ -67,9 +78,9 @@ export async function promptSecretInput(
       }
 
       settled = true;
-      output.write("\n");
       cleanup();
-      reject(new Error("Input cancelled"));
+      output.write("\n");
+      reject(new PromptCancelledError());
     };
 
     const onError = (error: Error) => {
@@ -128,7 +139,21 @@ export function createCli(options: CliOptions = {}): Command {
     .description("prepares repo for Sandcastle automation")
     .option("--no-install", "skip package manager install")
     .action(async (commandOptions: { install: boolean }) => {
-      const ghToken = await readInput("Paste GH_TOKEN for GitHub Issues access: ");
+      let ghToken: string;
+
+      try {
+        ghToken = await readInput("Paste GH_TOKEN for GitHub Issues access: ");
+      } catch (error) {
+        if (isPromptCancelledError(error)) {
+          program.error("Input cancelled.", {
+            code: "prompt.cancelled",
+            exitCode: 130,
+          });
+        }
+
+        throw error;
+      }
+
       const install = options.install ?? commandOptions.install;
 
       await initSandcastle({

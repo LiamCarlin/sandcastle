@@ -1,9 +1,23 @@
 {
+  "name": "workspace",
+  "version": "0.1.0",
+  "type": "module",
   "scripts": {
+    "ci": "npm run typecheck && npm run test",
+    "cli": "tsx src/cli.ts",
+    "test": "vitest run --typecheck",
+    "typecheck": "tsc --noEmit",
     "sandcastle": "npx tsx --env-file=.sandcastle/.env .sandcastle/main.mts"
   },
   "dependencies": {
     "@ai-hero/sandcastle": "^0.6.6",
+    "commander": "^14.0.2",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
   }
 }

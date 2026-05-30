@@ -8,6 +8,10 @@ Only work on the issue specified.
 
 Work on branch {{BRANCH}}. Make commits and run tests.
 
+Fallback reason, if any: {{FALLBACK_REASON}}
+
+If a fallback reason is present, this issue was selected as the least-blocked fallback because all ready issues were blocked. Proceed with the assigned issue. Use the issue body, dependency markers, and comments to avoid unsafe assumptions, but do not stop solely because fallback blockers exist.
+
 # CONTEXT
 
 Here are the last 10 commits:
@@ -23,6 +27,8 @@ Here are the last 10 commits:
 Explore the repo and fill your context window with relevant information that will allow you to complete the task.
 
 Pay extra attention to test files that touch the relevant parts of the code.
+
+Read the issue body, dependency markers, and comments before changing code. Treat `## Dependencies` as important context, but complete the assigned issue rather than switching tasks.
 
 # EXECUTION
 

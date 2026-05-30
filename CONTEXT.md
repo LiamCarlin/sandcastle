@@ -52,6 +52,38 @@ _Avoid_: priority, scheduling
 The model-backed phase that reads open GitHub issues and selects currently unblocked work. The planner returns structured issue candidates so the execution loop can remain deterministic.
 _Avoid_: scheduler, queue
 
+**Strict planner selection**:
+Planner behavior limited to identifying dependency relationships and returning currently unblocked issue candidates, without designing solutions, rewriting requirements, or choosing implementation strategy.
+_Avoid_: strategic planning, solution design, issue rewriting
+
+**Dependency marker vocabulary**:
+Canonical issue language used to make dependency relationships machine-readable for the planner while preserving issue bodies and comments as supporting context. Explicit markers such as `Blocked by`, `Blocks`, `Depends on decision`, and `Can start immediately` are high-confidence signals, not the only source of dependency evidence.
+_Avoid_: ad hoc dependency wording, hidden dependencies
+
+**Decision blocker**:
+An unresolved human, architectural, API, or domain decision represented in issue language with `Depends on decision`. HITL slices should use decision blockers unless the human decision has already been resolved.
+_Avoid_: hidden HITL requirement, ordinary implementation blocker
+
+**Planner diagnostics**:
+Lightweight dependency reasoning emitted by the planner for runner/operator visibility. Planner diagnostics explain why issues are unblocked, blocked, or selected as fallback, but they do not replace the implementer's responsibility to pull and interpret the full issue context. Canonical diagnostic statuses are `unblocked`, `blocked`, and `fallback`.
+_Avoid_: implementation plan, complete issue context
+
+**Planner non-failure output**:
+Planner prompt behavior that always emits valid `<plan>` JSON for empty, ambiguous, or malformed issue context. Infrastructure failures such as Codex CLI, sandbox, GitHub command, or schema parsing failures remain explicit runtime failures outside the planner prompt's control.
+_Avoid_: malformed planner response, prompt-level abort
+
+**Blocker type**:
+Structured planner diagnostic category used to explain why one issue blocks another. Canonical blocker types are `decision`, `explicit-blocked-by`, `required-code`, `merge-conflict`, and `inferred-sequencing`.
+_Avoid_: free-text-only blocker reason, priority label
+
+**Least-blocked fallback**:
+Planner behavior used only when every ready issue has a blocking dependency. The planner still returns one candidate so automation can make progress, choosing the issue with the fewest or weakest blockers using deterministic tie-breaking and exposing the blocker reasoning through planner diagnostics.
+_Avoid_: random blocked issue, silent blocker override
+
+**Fallback handoff**:
+Planner-to-implementer metadata that tells the implementer an assigned issue was selected as the least-blocked fallback. The implementer proceeds with the assigned issue while using the issue body, dependency markers, and comments to avoid unsafe assumptions.
+_Avoid_: hidden fallback, stop-on-fallback
+
 **Configured Codex model**:
 The Codex CLI model and reasoning effort used by model-backed phases. The default target is Codex 5.5 with medium effort, but the exact CLI model string must remain easy to change.
 _Avoid_: hard-coded model, baked-in model

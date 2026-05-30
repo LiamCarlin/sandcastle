@@ -35,10 +35,33 @@ import {
 // and validates it against this schema. We use Zod here, but any Standard
 // Schema validator works just as well — Valibot, ArkType, etc. See
 // https://standardschema.dev.
+const planDiagnosticSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.enum(["unblocked", "blocked", "fallback"]),
+  blockedBy: z.array(z.string()).optional(),
+  blockerType: z
+    .enum([
+      "decision",
+      "explicit-blocked-by",
+      "required-code",
+      "merge-conflict",
+      "inferred-sequencing",
+    ])
+    .optional(),
+  reason: z.string(),
+});
+
 const planSchema = z.object({
   issues: z.array(
-    z.object({ id: z.string(), title: z.string(), branch: z.string() }),
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      branch: z.string(),
+      fallback: z.boolean().optional(),
+    }),
   ),
+  diagnostics: z.array(planDiagnosticSchema),
 });
 
 // ---------------------------------------------------------------------------
@@ -132,6 +155,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   const plannedIssues = plan.output.issues;
   const issues = limitIssuesForRun(plannedIssues, config.maxParallelIssues);
+  const diagnostics = plan.output.diagnostics;
 
   if (plannedIssues.length === 0) {
     // No unblocked work — either everything is done or everything is blocked.
@@ -140,10 +164,11 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   }
 
   console.log(
-    `Planning complete. ${plannedIssues.length} unblocked issue(s), running ${issues.length} this iteration:`,
+    `Planning complete. ${plannedIssues.length} runnable issue(s), running ${issues.length} this iteration:`,
   );
   for (const issue of issues) {
-    console.log(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
+    const suffix = issue.fallback ? " (least-blocked fallback)" : "";
+    console.log(`  ${issue.id}: ${issue.title} → ${issue.branch}${suffix}`);
   }
 
   // -------------------------------------------------------------------------
@@ -166,6 +191,13 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       });
 
       try {
+        const fallbackReason = issue.fallback
+          ? (diagnostics.find(
+              (diagnostic) =>
+                diagnostic.id === issue.id && diagnostic.status === "fallback",
+            )?.reason ?? "")
+          : "";
+
         // Run the implementer
         const implement = await sandbox.run({
           name: "implementer",
@@ -176,6 +208,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             TASK_ID: issue.id,
             ISSUE_TITLE: issue.title,
             BRANCH: issue.branch,
+            FALLBACK_REASON: fallbackReason,
           },
         });
 

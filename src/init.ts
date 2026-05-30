@@ -44,6 +44,8 @@ const requiredScripts: Record<string, string> = {
   "test:sandcastle": "node --test .sandcastle/*.test.mjs",
 };
 
+const sandcastleGitignoreFallback = ".env\nlogs/\n";
+
 export async function initSandcastle(options: InitSandcastleOptions): Promise<void> {
   const targetDir = options.targetDir;
 
@@ -81,10 +83,24 @@ async function copyManagedTemplates(targetDir: string): Promise<void> {
   await mkdir(targetSandcastleDir, { recursive: true });
 
   await Promise.all(
-    managedTemplateFiles.map((file) =>
-      copyFile(join(sourceDir, file), join(targetSandcastleDir, file)),
-    ),
+    managedTemplateFiles.map((file) => copyManagedTemplate(sourceDir, targetSandcastleDir, file)),
   );
+}
+
+async function copyManagedTemplate(
+  sourceDir: string,
+  targetDir: string,
+  file: (typeof managedTemplateFiles)[number],
+): Promise<void> {
+  const sourcePath = join(sourceDir, file);
+  const targetPath = join(targetDir, file);
+
+  if (file !== ".gitignore" || (await exists(sourcePath))) {
+    await copyFile(sourcePath, targetPath);
+    return;
+  }
+
+  await writeFile(targetPath, sandcastleGitignoreFallback);
 }
 
 function findTemplateDir(): string {
@@ -134,9 +150,10 @@ async function updatePackageJson(
   }
 
   const devDependencies = objectValue(packageJson.devDependencies);
+  const dependencies = objectValue(packageJson.dependencies);
   packageJson.devDependencies = devDependencies;
   for (const [name, version] of Object.entries(requiredDevDependencies)) {
-    if (!(name in devDependencies)) {
+    if (!(name in dependencies) && !(name in devDependencies)) {
       devDependencies[name] = version;
     }
   }

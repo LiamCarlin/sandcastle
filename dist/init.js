@@ -1,0 +1,153 @@
+import { spawn } from "node:child_process";
+import { constants } from "node:fs";
+import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+const managedTemplateFiles = [
+    ".env.example",
+    ".gitignore",
+    "CODING_STANDARDS.md",
+    "Dockerfile",
+    "automation-config.mjs",
+    "automation-config.test.mjs",
+    "main.mts",
+    "implement-prompt.md",
+    "merge-prompt.md",
+    "plan-prompt.md",
+    "review-prompt.md",
+];
+const requiredDevDependencies = {
+    "@ai-hero/sandcastle": "^0.6.6",
+    tsx: "^4.20.6",
+    zod: "^4.4.3",
+};
+const requiredScripts = {
+    sandcastle: "npx tsx --env-file=.sandcastle/.env .sandcastle/main.mts",
+    "test:sandcastle": "node --test .sandcastle/*.test.mjs",
+};
+const sandcastleGitignoreFallback = ".env\nlogs/\n";
+export async function initSandcastle(options) {
+    const targetDir = options.targetDir;
+    const packageJson = await readPackageJson(targetDir);
+    await copyManagedTemplates(targetDir);
+    await ensureEnv(targetDir, options.ghToken ?? "");
+    await updatePackageJson(targetDir, packageJson);
+    if (options.install !== false) {
+        const command = await detectInstallCommand(targetDir);
+        options.writeLine?.(`Running ${command} install`);
+        await (options.runCommand ?? runCommand)(command, ["install"], { cwd: targetDir });
+    }
+}
+async function readPackageJson(targetDir) {
+    const packagePath = join(targetDir, "package.json");
+    try {
+        const parsed = JSON.parse(await readFile(packagePath, "utf8"));
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("package.json must contain an object");
+        }
+        return parsed;
+    }
+    catch (error) {
+        const cause = error instanceof Error ? `: ${error.message}` : "";
+        throw new Error(`package.json is required${cause}`);
+    }
+}
+async function copyManagedTemplates(targetDir) {
+    const sourceDir = findTemplateDir();
+    const targetSandcastleDir = join(targetDir, ".sandcastle");
+    await mkdir(targetSandcastleDir, { recursive: true });
+    await Promise.all(managedTemplateFiles.map((file) => copyManagedTemplate(sourceDir, targetSandcastleDir, file)));
+}
+async function copyManagedTemplate(sourceDir, targetDir, file) {
+    const sourcePath = join(sourceDir, file);
+    const targetPath = join(targetDir, file);
+    if (file !== ".gitignore" || (await exists(sourcePath))) {
+        await copyFile(sourcePath, targetPath);
+        return;
+    }
+    await writeFile(targetPath, sandcastleGitignoreFallback);
+}
+function findTemplateDir() {
+    const moduleDir = dirname(fileURLToPath(import.meta.url));
+    return join(moduleDir, "..", ".sandcastle");
+}
+async function ensureEnv(targetDir, ghToken) {
+    const sandcastleDir = join(targetDir, ".sandcastle");
+    const envPath = join(sandcastleDir, ".env");
+    const examplePath = join(sandcastleDir, ".env.example");
+    if (!(await exists(envPath))) {
+        await copyFile(examplePath, envPath);
+    }
+    const trimmedToken = ghToken.trim();
+    if (trimmedToken.length === 0) {
+        return;
+    }
+    const env = await readFile(envPath, "utf8");
+    await writeFile(envPath, upsertEnvValue(env, "GH_TOKEN", trimmedToken));
+}
+function upsertEnvValue(env, key, value) {
+    const lines = env.split(/\r?\n/);
+    const index = lines.findIndex((line) => line.startsWith(`${key}=`));
+    if (index >= 0) {
+        lines[index] = `${key}=${value}`;
+        return lines.join("\n");
+    }
+    const suffix = env.endsWith("\n") || env.length === 0 ? "" : "\n";
+    return `${env}${suffix}${key}=${value}\n`;
+}
+async function updatePackageJson(targetDir, packageJson) {
+    const scripts = objectValue(packageJson.scripts);
+    packageJson.scripts = scripts;
+    for (const [name, command] of Object.entries(requiredScripts)) {
+        scripts[name] = command;
+    }
+    const devDependencies = objectValue(packageJson.devDependencies);
+    const dependencies = objectValue(packageJson.dependencies);
+    packageJson.devDependencies = devDependencies;
+    for (const [name, version] of Object.entries(requiredDevDependencies)) {
+        if (!(name in dependencies) && !(name in devDependencies)) {
+            devDependencies[name] = version;
+        }
+    }
+    await writeFile(join(targetDir, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`);
+}
+function objectValue(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return {};
+    }
+    return value;
+}
+async function detectInstallCommand(targetDir) {
+    if (await exists(join(targetDir, "pnpm-lock.yaml"))) {
+        return "pnpm";
+    }
+    if (await exists(join(targetDir, "yarn.lock"))) {
+        return "yarn";
+    }
+    return "npm";
+}
+async function exists(path) {
+    try {
+        await access(path, constants.F_OK);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+async function runCommand(command, args, options) {
+    await new Promise((resolve, reject) => {
+        const child = spawn(command, args, {
+            cwd: options.cwd,
+            stdio: "inherit",
+        });
+        child.on("error", reject);
+        child.on("exit", (code, signal) => {
+            if (code === 0) {
+                resolve();
+                return;
+            }
+            reject(new Error(`${command} ${args.join(" ")} failed with ${signal ?? `exit code ${code}`}`));
+        });
+    });
+}

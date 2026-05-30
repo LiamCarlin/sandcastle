@@ -1,6 +1,8 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
 import { stdin as inputStream, stdout as outputStream } from "node:process";
 import type { Readable, Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
 
 import { Command } from "commander";
 
@@ -173,6 +175,14 @@ export function createCli(options: CliOptions = {}): Command {
   return program;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isDirectCliInvocation(metaUrl: string, argvPath: string | undefined): boolean {
+  if (!argvPath) {
+    return false;
+  }
+
+  return realpathSync(fileURLToPath(metaUrl)) === realpathSync(argvPath);
+}
+
+if (isDirectCliInvocation(import.meta.url, process.argv[1])) {
   await createCli().parseAsync(process.argv);
 }

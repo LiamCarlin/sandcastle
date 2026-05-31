@@ -2,8 +2,8 @@
 
 Review issue {{TASK_ID}}: {{ISSUE_TITLE}}
 
-Review the code changes on branch `{{BRANCH}}` against target branch
-`{{TARGET_BRANCH}}`. Preserve intended behavior by default. You may fix clear
+Review the code changes on branch `{{BRANCH}}` against base branch
+`{{BASE_BRANCH}}`. Preserve intended behavior by default. You may fix clear
 defects only when the defect was introduced by this branch and the intended
 behavior is unambiguous from the issue, tests, implementer comment, or code.
 
@@ -27,11 +27,11 @@ If these conflict, follow the higher-priority item.
 
 ## Branch diff
 
-!`git diff {{TARGET_BRANCH}}...{{BRANCH}}`
+!`git diff {{BASE_BRANCH}}...{{BRANCH}}`
 
 ## Commits on this branch
 
-!`git log {{TARGET_BRANCH}}..{{BRANCH}} --oneline`
+!`git log {{BASE_BRANCH}}..{{BRANCH}} --oneline`
 
 # REQUIRED INPUTS
 

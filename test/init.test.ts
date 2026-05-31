@@ -74,7 +74,7 @@ describe("initSandcastle", () => {
     await expect(readFile(join(targetDir, ".sandcastle/logs/main-preflight.log"), "utf8")).rejects.toThrow();
   });
 
-  it("passes issue context and target branch into the reviewer prompt", async () => {
+  it("passes issue context and base branch into the reviewer prompt without overriding built-ins", async () => {
     const targetDir = await makeTarget();
 
     await initSandcastle({
@@ -87,10 +87,47 @@ describe("initSandcastle", () => {
     });
 
     const main = await readFile(join(targetDir, ".sandcastle/main.mts"), "utf8");
+    const reviewPrompt = await readFile(join(targetDir, ".sandcastle/review-prompt.md"), "utf8");
     expect(main).toContain("const targetBranch =");
     expect(main).toContain("TASK_ID: issue.id");
     expect(main).toContain("ISSUE_TITLE: issue.title");
-    expect(main).toContain("TARGET_BRANCH: targetBranch");
+    expect(main).toContain("BASE_BRANCH: targetBranch");
+    expect(main).not.toContain("TARGET_BRANCH: targetBranch");
+    expect(reviewPrompt).toContain("{{BASE_BRANCH}}");
+    expect(reviewPrompt).not.toContain("{{TARGET_BRANCH}}");
+  });
+
+  it("stops instead of replanning the same open issue when no commits were produced", async () => {
+    const targetDir = await makeTarget();
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+
+    const main = await readFile(join(targetDir, ".sandcastle/main.mts"), "utf8");
+    expect(main).toContain('console.log("No commits produced. Nothing to merge.");\n    break;');
+  });
+
+  it("fails the run when an issue pipeline rejects", async () => {
+    const targetDir = await makeTarget();
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+
+    const main = await readFile(join(targetDir, ".sandcastle/main.mts"), "utf8");
+    expect(main).toContain("const failedIssues = settled");
+    expect(main).toContain('throw new Error(`Issue pipeline failed for ${failedIssues.join(", ")}`);');
   });
 
   it("passes paired merge candidates into the merger prompt", async () => {
@@ -108,6 +145,26 @@ describe("initSandcastle", () => {
     const main = await readFile(join(targetDir, ".sandcastle/main.mts"), "utf8");
     expect(main).toContain("MERGE_CANDIDATES:");
     expect(main).toContain("from ${i.branch}");
+  });
+
+  it("allows merge when pre-existing dirty files do not overlap the candidate branch", async () => {
+    const targetDir = await makeTarget();
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+
+    const mergePrompt = await readFile(join(targetDir, ".sandcastle/merge-prompt.md"), "utf8");
+    expect(mergePrompt).toContain("Do not skip solely because the target worktree is dirty.");
+    expect(mergePrompt).toContain("git diff --name-only HEAD...<branch>");
+    expect(mergePrompt).toContain("when a dirty path overlaps the candidate branch diff");
+    expect(mergePrompt).not.toContain("The target worktree must be clean except for files");
+    expect(mergePrompt).not.toContain("target worktree is dirty before the merge starts with unrelated");
   });
 
   it("creates .env from the example and writes the provided GH_TOKEN", async () => {

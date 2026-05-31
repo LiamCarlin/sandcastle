@@ -40,8 +40,11 @@ explicit reason:
 - The branch no longer exists or cannot be fetched.
 - The issue/branch mapping is unusable, so you cannot know which issue would be
   closed.
-- The target worktree is dirty before the merge starts with unrelated
-  pre-existing changes.
+- A pre-existing dirty worktree path overlaps the candidate branch diff, making
+  the merge unsafe to attempt without overwriting unrelated work.
+
+Do not skip solely because the target worktree is dirty. Dirty files that do not
+overlap the candidate branch can remain untouched while the merge proceeds.
 
 Once a branch is attempted, a conflict or test failure is not a skip. Resolve
 integration-only problems when the cause is clear. If the branch cannot be
@@ -53,8 +56,7 @@ Preserve the provided candidate order. Do not reorder by perceived importance.
 
 Before starting:
 
-1. Run `git status --short`. The target worktree must be clean except for files
-   you intentionally create during this merge phase.
+1. Run `git status --short` and record pre-existing dirty paths.
 2. Read each issue with comments using `gh issue view <ID> --comments`.
 3. Identify the latest reviewer status comment for each issue:
    - `Review: Passed`
@@ -70,26 +72,30 @@ Before starting:
 For each merge candidate in order:
 
 1. Check `git status --short`.
-2. If the branch has an explicit pre-merge skip reason, leave a `Merge: Skipped`
-   issue comment with the reason and continue to the next candidate.
-3. Run `git merge <branch> --no-edit`.
-4. If there are merge conflicts, read both sides and resolve the integration
+2. Run `git diff --name-only HEAD...<branch>` to list files changed by the candidate
+   branch relative to the current target.
+3. If the branch has an explicit pre-merge skip reason, leave a `Merge: Skipped`
+   issue comment with the reason and continue to the next candidate. Only skip
+   when a dirty path overlaps the candidate branch diff, the branch/review state
+   blocks merging, or the issue/branch mapping is unusable.
+4. Run `git merge <branch> --no-edit`.
+5. If there are merge conflicts, read both sides and resolve the integration
    conflict correctly. Do not redesign feature behavior or implement missing
    issue scope.
-5. If conflict resolution or integration-only fixes require tests, update or add
+6. If conflict resolution or integration-only fixes require tests, update or add
    tests only when the combined behavior is clear.
-6. Run verification after the branch is merged:
+7. Run verification after the branch is merged:
    - `npm run typecheck`
    - `npm run test`
-7. If verification fails, fix clear integration-only failures and rerun the
+8. If verification fails, fix clear integration-only failures and rerun the
    failing command plus any affected standard checks.
-8. If the branch is merged and verification passes, close the issue with a
+9. If the branch is merged and verification passes, close the issue with a
    `Merge: Completed` close comment including the branch and verification
    results.
-9. If the branch cannot be integrated safely, restore the target branch to a
+10. If the branch cannot be integrated safely, restore the target branch to a
    clean state using `git merge --abort` when applicable. Then leave
    `Merge: Requeue recommended` with exact failure details and continue only if
-   the worktree is clean.
+   the worktree has no new merge-phase changes.
 
 Close an issue only after its branch has merged into the current target branch
 and verification has passed.
@@ -155,8 +161,9 @@ issue.
 Run a final `npm run typecheck` and `npm run test` once after all successful
 merges only if conflict resolutions or integration fixes were made.
 
-Before finishing, run `git status --short` and ensure the target worktree is
-clean. Do not delete merged branches.
+Before finishing, run `git status --short` and ensure there are no new
+merge-phase changes beyond successful merge commits and any pre-existing dirty
+paths. Do not delete merged branches.
 
 # FINAL OUTPUT
 

@@ -226,7 +226,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
               TASK_ID: issue.id,
               ISSUE_TITLE: issue.title,
               BRANCH: issue.branch,
-              TARGET_BRANCH: targetBranch,
+              BASE_BRANCH: targetBranch,
             },
           });
 
@@ -254,6 +254,13 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     }
   }
 
+  const failedIssues = settled.flatMap((outcome, i) =>
+    outcome.status === "rejected" ? [issues[i]!.id] : [],
+  );
+  if (failedIssues.length > 0) {
+    throw new Error(`Issue pipeline failed for ${failedIssues.join(", ")}`);
+  }
+
   // Only pass branches that actually produced commits to the merge phase.
   // An agent that ran successfully but made no commits has nothing to merge.
   const completedIssues = settled
@@ -275,9 +282,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   }
 
   if (completedBranches.length === 0) {
-    // All agents ran but none made commits — nothing to merge this cycle.
+    // No repository state changed, so replanning would select the same open work.
     console.log("No commits produced. Nothing to merge.");
-    continue;
+    break;
   }
 
   // -------------------------------------------------------------------------

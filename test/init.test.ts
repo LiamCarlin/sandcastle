@@ -71,6 +71,23 @@ describe("initSandcastle", () => {
     expect(main).toContain("TARGET_BRANCH: targetBranch");
   });
 
+  it("passes paired merge candidates into the merger prompt", async () => {
+    const targetDir = await makeTarget();
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+
+    const main = await readFile(join(targetDir, ".sandcastle/main.mts"), "utf8");
+    expect(main).toContain("MERGE_CANDIDATES:");
+    expect(main).toContain("from ${i.branch}");
+  });
+
   it("creates .env from the example and writes the provided GH_TOKEN", async () => {
     const targetDir = await makeTarget();
 

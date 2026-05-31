@@ -286,8 +286,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // One agent merges all completed branches into the current branch,
   // resolving any conflicts and running tests to confirm everything works.
   //
-  // The {{BRANCHES}} and {{ISSUES}} prompt arguments are lists that the agent
-  // uses to know which branches to merge and which issues to close.
+  // The {{MERGE_CANDIDATES}} prompt argument pairs each issue with its branch.
+  // {{BRANCHES}} and {{ISSUES}} remain available as compatibility context.
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
@@ -297,6 +297,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     agent: codexAgent(),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
+      // A markdown list of issue IDs, titles, and branch names.
+      MERGE_CANDIDATES: completedIssues
+        .map((i) => `- #${i.id} "${i.title}" from ${i.branch}`)
+        .join("\n"),
       // A markdown list of branch names, one per line.
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
       // A markdown list of issue IDs and titles, one per line.

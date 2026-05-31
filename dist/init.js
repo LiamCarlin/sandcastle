@@ -71,8 +71,15 @@ async function readPackageJson(targetDir) {
         return parsed;
     }
     catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") {
+            return {
+                name: normalizePackageName(basename(targetDir)),
+                private: true,
+                type: "module",
+            };
+        }
         const cause = error instanceof Error ? `: ${error.message}` : "";
-        throw new Error(`package.json is required${cause}`);
+        throw new Error(`package.json is invalid${cause}`);
     }
 }
 async function copyManagedTemplates(targetDir) {
@@ -192,6 +199,9 @@ export function normalizeDockerName(name) {
         .replace(/^-+|-+$/g, "");
     return normalized || "repo";
 }
+function normalizePackageName(name) {
+    return normalizeDockerName(name);
+}
 async function setupGitHubLabel(targetDir, ghToken, run, env) {
     await run("gh", ["--version"], { cwd: targetDir });
     try {
@@ -263,6 +273,9 @@ async function exists(path) {
     catch {
         return false;
     }
+}
+function isNodeError(error) {
+    return error instanceof Error && "code" in error;
 }
 async function runCommand(command, args, options) {
     await new Promise((resolve, reject) => {

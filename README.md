@@ -1,6 +1,6 @@
 # Sandcastle Init
 
-`sandcastle-init` prepares a Node repository to run the Sandcastle automation workflow from this repo.
+`sandcastle-init` prepares a repository to run the Sandcastle automation workflow from this repo.
 
 The goal is simple: run one setup command in a target repo, answer the prompts, then start Sandcastle with:
 
@@ -65,7 +65,7 @@ context.
 
 Before running the initializer, the target repo needs:
 
-- A `package.json`.
+- A valid `package.json`, or no `package.json`. If one is missing, the initializer creates a minimal private package wrapper for Sandcastle scripts.
 - Docker Desktop running.
 - GitHub CLI installed: `gh --version`.
 - Codex CLI installed and logged in: `codex --version`.
@@ -117,7 +117,7 @@ npm exec --yes --package github:LiamCarlin/sandcastle -- sandcastle-init --yes
 
 the initializer:
 
-1. Validates that the target repo has `package.json`.
+1. Reads `package.json`, or creates a minimal one when it is missing.
 2. Detects npm, pnpm, or yarn from lockfiles.
 3. Copies the `.sandcastle/` template.
 4. Prompts for `GH_TOKEN` if it is not already in `.sandcastle/.env` or the environment.

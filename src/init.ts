@@ -113,8 +113,16 @@ async function readPackageJson(targetDir: string): Promise<Record<string, unknow
     }
     return parsed as Record<string, unknown>;
   } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return {
+        name: normalizePackageName(basename(targetDir)),
+        private: true,
+        type: "module",
+      };
+    }
+
     const cause = error instanceof Error ? `: ${error.message}` : "";
-    throw new Error(`package.json is required${cause}`);
+    throw new Error(`package.json is invalid${cause}`);
   }
 }
 
@@ -276,6 +284,10 @@ export function normalizeDockerName(name: string): string {
   return normalized || "repo";
 }
 
+function normalizePackageName(name: string): string {
+  return normalizeDockerName(name);
+}
+
 async function setupGitHubLabel(
   targetDir: string,
   ghToken: string,
@@ -382,6 +394,10 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 async function runCommand(

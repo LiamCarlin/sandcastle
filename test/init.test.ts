@@ -20,9 +20,31 @@ describe("initSandcastle", () => {
     await Promise.all(targetDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   });
 
-  it("refuses to run without package.json", async () => {
+  it("creates package.json when initializing a non-Node repo", async () => {
     const targetDir = await mkdtemp(join(tmpdir(), "sandcastle-init-empty-"));
     targetDirs.push(targetDir);
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+
+    const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf8"));
+    expect(packageJson.name).toMatch(/^sandcastle-init-empty-/);
+    expect(packageJson.private).toBe(true);
+    expect(packageJson.type).toBe("module");
+    expect(packageJson.scripts.sandcastle).toBe("npx tsx --env-file=.sandcastle/.env .sandcastle/main.mts");
+    expect(packageJson.devDependencies["@ai-hero/sandcastle"]).toBeDefined();
+  });
+
+  it("refuses to run with invalid package.json", async () => {
+    const targetDir = await mkdtemp(join(tmpdir(), "sandcastle-init-invalid-"));
+    targetDirs.push(targetDir);
+    await writeFile(join(targetDir, "package.json"), "{");
 
     await expect(
       initSandcastle({
@@ -31,7 +53,7 @@ describe("initSandcastle", () => {
         install: false,
         dockerBuild: false,
       }),
-    ).rejects.toThrow("package.json is required");
+    ).rejects.toThrow("package.json is invalid");
   });
 
   it("copies managed template files and excludes runtime files", async () => {

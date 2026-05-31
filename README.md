@@ -17,6 +17,9 @@ The initializer installs a ready-to-run Sandcastle workflow that uses:
 - The `Sandcastle` GitHub issue label.
 - The Parallel Planner with Review template.
 - A repo-specific Docker image, such as `sandcastle-my-repo:latest`.
+- A bundled coding standards rubric for Sandcastle reviewer agents.
+- Issue-scoped implementer, reviewer, and merger prompts with explicit
+  verification and GitHub issue comment requirements.
 
 It also:
 
@@ -29,6 +32,34 @@ It also:
 - Runs the `.sandcastle` config/schema validator.
 - Builds the repo-specific Docker image.
 - Checks Docker, GitHub CLI, Codex CLI, and local Codex login files.
+
+## Bundled Agent Workflow
+
+The generated `.sandcastle/` template includes prompt and standards files that
+define how Sandcastle agents should work inside the target repo:
+
+- `.sandcastle/CODING_STANDARDS.md` is a reviewer rubric. It covers ambiguity
+  handling, minimum-sufficient design, surgical changes, public-interface tests,
+  generated template safety, and required verification reporting.
+- `.sandcastle/implement-prompt.md` keeps implementers on one assigned issue and
+  branch. Implementers must read issue comments and linked specs, define success
+  criteria, use TDD for behavior changes when available, commit only related
+  changes, and leave a structured issue status comment.
+- `.sandcastle/review-prompt.md` reviews a specific issue branch against the
+  current target branch. Reviewers receive the issue ID, title, branch, and
+  target branch, apply the coding standards rubric, make only high-confidence
+  branch-scoped refinements, and report whether the branch is mergeable or should
+  be requeued.
+- `.sandcastle/merge-prompt.md` uses paired merge candidates that include the
+  issue ID, issue title, and branch name. The merger attempts candidates in
+  order, respects explicit requeue or hold signals, verifies each successful
+  merge, closes only verified issues, and leaves machine-actionable comments for
+  skipped or requeued work.
+
+At runtime, `.sandcastle/main.mts` passes the current target branch into reviewer
+prompts and passes paired issue/branch merge candidates into the merger prompt,
+while keeping the older branch and issue lists available as compatibility
+context.
 
 ## Prerequisites
 
@@ -151,6 +182,10 @@ npm run sandcastle
 ```
 
 The planner selects unblocked issues, assigns deterministic branches like `sandcastle/issue-42`, runs implementer and reviewer phases, and then runs a merge phase for completed branches.
+
+Each implementation branch is reviewed before the merge phase. The merge phase
+uses the reviewer comments and paired issue/branch candidates to decide which
+branches can be merged and which issues can be closed.
 
 ## Troubleshooting
 

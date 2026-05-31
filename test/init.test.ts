@@ -52,6 +52,25 @@ describe("initSandcastle", () => {
     await expect(readFile(join(targetDir, ".sandcastle/logs/main-preflight.log"), "utf8")).rejects.toThrow();
   });
 
+  it("passes issue context and target branch into the reviewer prompt", async () => {
+    const targetDir = await makeTarget();
+
+    await initSandcastle({
+      targetDir,
+      ghToken: "ghp_test",
+      install: false,
+      dockerBuild: false,
+      codexPreflight: false,
+      runCommand: noopRunCommand,
+    });
+
+    const main = await readFile(join(targetDir, ".sandcastle/main.mts"), "utf8");
+    expect(main).toContain("const targetBranch =");
+    expect(main).toContain("TASK_ID: issue.id");
+    expect(main).toContain("ISSUE_TITLE: issue.title");
+    expect(main).toContain("TARGET_BRANCH: targetBranch");
+  });
+
   it("creates .env from the example and writes the provided GH_TOKEN", async () => {
     const targetDir = await makeTarget();
 

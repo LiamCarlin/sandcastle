@@ -69,6 +69,9 @@ const planSchema = z.object({
 // ---------------------------------------------------------------------------
 
 const config = getAutomationConfig();
+const targetBranch =
+  execFileSync("git", ["branch", "--show-current"], { encoding: "utf8" }).trim() ||
+  "main";
 
 // Maximum number of plan→execute→merge cycles before stopping.
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
@@ -220,7 +223,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             agent: codexAgent(),
             promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
+              TASK_ID: issue.id,
+              ISSUE_TITLE: issue.title,
               BRANCH: issue.branch,
+              TARGET_BRANCH: targetBranch,
             },
           });
 

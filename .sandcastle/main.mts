@@ -30,6 +30,7 @@ import {
   getAutomationConfig,
   limitIssuesForRun,
 } from "./automation-config.mjs";
+import { runCodexPhase } from "./codex-diagnostics.mjs";
 
 // The planner emits its plan as JSON inside <plan> tags; Output.object extracts
 // and validates it against this schema. We use Zod here, but any Standard
@@ -103,15 +104,17 @@ const runPreflight = async () => {
 
   execFileSync("codex", ["--version"], { stdio: "ignore" });
 
-  const preflight = await sandcastle.run({
-    sandbox: sandboxProvider,
-    name: "preflight",
-    maxIterations: 1,
-    agent: codexAgent(),
-    prompt:
-      "Preflight check. Do not edit files. Reply exactly with <preflight>OK</preflight>.",
-    output: sandcastle.Output.string({ tag: "preflight" }),
-  });
+  const preflight = await runCodexPhase("preflight", () =>
+    sandcastle.run({
+      sandbox: sandboxProvider,
+      name: "preflight",
+      maxIterations: 1,
+      agent: codexAgent(),
+      prompt:
+        "Preflight check. Do not edit files. Reply exactly with <preflight>OK</preflight>.",
+      output: sandcastle.Output.string({ tag: "preflight" }),
+    }),
+  );
 
   if (preflight.output !== "OK") {
     throw new Error(`Codex CLI preflight returned ${preflight.output}`);
@@ -140,21 +143,23 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   //
   // It outputs a <plan> JSON block — Output.object parses and validates it.
   // -------------------------------------------------------------------------
-  const plan = await sandcastle.run({
-    hooks,
-    sandbox: sandboxProvider,
-    name: "planner",
-    // One iteration is enough: the planner just needs to read and reason,
-    // not write code. (Structured output requires maxIterations: 1.)
-    maxIterations: 1,
-    // Opus for planning: dependency analysis benefits from deeper reasoning.
-    agent: codexAgent(),
-    promptFile: "./.sandcastle/plan-prompt.md",
-    // Extract and validate the <plan> JSON into a typed object. Throws
-    // StructuredOutputError if the tag is missing, the JSON is malformed, or
-    // validation fails — which aborts the loop.
-    output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
-  });
+  const plan = await runCodexPhase("planner", () =>
+    sandcastle.run({
+      hooks,
+      sandbox: sandboxProvider,
+      name: "planner",
+      // One iteration is enough: the planner just needs to read and reason,
+      // not write code. (Structured output requires maxIterations: 1.)
+      maxIterations: 1,
+      // Opus for planning: dependency analysis benefits from deeper reasoning.
+      agent: codexAgent(),
+      promptFile: "./.sandcastle/plan-prompt.md",
+      // Extract and validate the <plan> JSON into a typed object. Throws
+      // StructuredOutputError if the tag is missing, the JSON is malformed, or
+      // validation fails — which aborts the loop.
+      output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
+    }),
+  );
 
   const plannedIssues = plan.output.issues;
   const issues = limitIssuesForRun(plannedIssues, config.maxParallelIssues);
@@ -202,33 +207,37 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           : "";
 
         // Run the implementer
-        const implement = await sandbox.run({
-          name: "implementer",
-          maxIterations: 100,
-          agent: codexAgent(),
-          promptFile: "./.sandcastle/implement-prompt.md",
-          promptArgs: {
-            TASK_ID: issue.id,
-            ISSUE_TITLE: issue.title,
-            BRANCH: issue.branch,
-            FALLBACK_REASON: fallbackReason,
-          },
-        });
-
-        // Only review if the implementer produced commits
-        if (implement.commits.length > 0) {
-          const review = await sandbox.run({
-            name: "reviewer",
-            maxIterations: 1,
+        const implement = await runCodexPhase(`implementer for issue ${issue.id}`, () =>
+          sandbox.run({
+            name: "implementer",
+            maxIterations: 100,
             agent: codexAgent(),
-            promptFile: "./.sandcastle/review-prompt.md",
+            promptFile: "./.sandcastle/implement-prompt.md",
             promptArgs: {
               TASK_ID: issue.id,
               ISSUE_TITLE: issue.title,
               BRANCH: issue.branch,
-              BASE_BRANCH: targetBranch,
+              FALLBACK_REASON: fallbackReason,
             },
-          });
+          }),
+        );
+
+        // Only review if the implementer produced commits
+        if (implement.commits.length > 0) {
+          const review = await runCodexPhase(`reviewer for issue ${issue.id}`, () =>
+            sandbox.run({
+              name: "reviewer",
+              maxIterations: 1,
+              agent: codexAgent(),
+              promptFile: "./.sandcastle/review-prompt.md",
+              promptArgs: {
+                TASK_ID: issue.id,
+                ISSUE_TITLE: issue.title,
+                BRANCH: issue.branch,
+                BASE_BRANCH: targetBranch,
+              },
+            }),
+          );
 
           // Merge commits from both runs so the merge phase sees all of them.
           // Each sandbox.run() only returns commits from its own run.
@@ -296,24 +305,26 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // The {{MERGE_CANDIDATES}} prompt argument pairs each issue with its branch.
   // {{BRANCHES}} and {{ISSUES}} remain available as compatibility context.
   // -------------------------------------------------------------------------
-  await sandcastle.run({
-    hooks,
-    sandbox: sandboxProvider,
-    name: "merger",
-    maxIterations: 1,
-    agent: codexAgent(),
-    promptFile: "./.sandcastle/merge-prompt.md",
-    promptArgs: {
-      // A markdown list of issue IDs, titles, and branch names.
-      MERGE_CANDIDATES: completedIssues
-        .map((i) => `- #${i.id} "${i.title}" from ${i.branch}`)
-        .join("\n"),
-      // A markdown list of branch names, one per line.
-      BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
-      // A markdown list of issue IDs and titles, one per line.
-      ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
-    },
-  });
+  await runCodexPhase("merger", () =>
+    sandcastle.run({
+      hooks,
+      sandbox: sandboxProvider,
+      name: "merger",
+      maxIterations: 1,
+      agent: codexAgent(),
+      promptFile: "./.sandcastle/merge-prompt.md",
+      promptArgs: {
+        // A markdown list of issue IDs, titles, and branch names.
+        MERGE_CANDIDATES: completedIssues
+          .map((i) => `- #${i.id} "${i.title}" from ${i.branch}`)
+          .join("\n"),
+        // A markdown list of branch names, one per line.
+        BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
+        // A markdown list of issue IDs and titles, one per line.
+        ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
+      },
+    }),
+  );
 
   console.log("\nBranches merged.");
 }

@@ -71,6 +71,9 @@ describe("initSandcastle", () => {
     await expect(readFile(join(targetDir, ".sandcastle/main.mts"), "utf8")).resolves.toContain(
       "Parallel Planner with Review",
     );
+    await expect(
+      readFile(join(targetDir, ".sandcastle/codex-diagnostics.mjs"), "utf8"),
+    ).resolves.toContain("classifyCodexFailure");
     await expect(readFile(join(targetDir, ".sandcastle/logs/main-preflight.log"), "utf8")).rejects.toThrow();
   });
 

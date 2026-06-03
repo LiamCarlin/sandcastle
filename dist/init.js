@@ -11,6 +11,8 @@ const managedTemplateFiles = [
     "Dockerfile",
     "automation-config.mjs",
     "automation-config.test.mjs",
+    "codex-diagnostics.mjs",
+    "codex-diagnostics.test.mjs",
     "main.mts",
     "implement-prompt.md",
     "merge-prompt.md",
